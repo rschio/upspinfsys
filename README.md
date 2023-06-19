@@ -1,5 +1,5 @@
 # upspinfsys
-An fs.FS implementation for Upspin.
+fs.FS implementation for Upspin.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/rschio/upspinfsys.svg)](https://pkg.go.dev/github.com/rschio/upspinfsys)
 
