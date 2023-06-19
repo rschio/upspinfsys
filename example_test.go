@@ -10,7 +10,7 @@ import (
 	"github.com/rschio/upspinfsys"
 )
 
-func ExampleFS() {
+func ExampleUpspinFS() {
 	fsys := upspinfsys.UpspinFS(c)
 	home := string(cfg.UserName())
 	path := filepath.Join(home, "documents", "doc1.txt")
@@ -29,7 +29,7 @@ func ExampleFS() {
 	// doc1
 }
 
-func ExampleHTTPServer() {
+func ExampleUpspinFS_httpServer() {
 	fsys := upspinfsys.UpspinFS(c)
 	home := string(cfg.UserName())
 	path := filepath.Join(home, "documents", "doc2.txt")
