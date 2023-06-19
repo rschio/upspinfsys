@@ -4,7 +4,7 @@
 //
 // Limitations:
 //   - The package only handles regular files and dir files;
-//   - The FileMode does not represent the Access file correclty.
+//   - The FileMode does not represent the Access file correctly.
 package upspinfsys
 
 import (
