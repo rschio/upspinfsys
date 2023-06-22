@@ -1,15 +1,13 @@
 package upspinfsys_test
 
 import (
-	"errors"
 	"io"
 	"io/fs"
 	"log"
 	"path/filepath"
-	"sort"
 	"testing"
+	"testing/fstest"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/rschio/upspinfsys"
 	"upspin.io/client"
 	"upspin.io/config"
@@ -33,24 +31,39 @@ func TestMain(m *testing.M) {
 	m.Run()
 }
 
-func TestGlob(t *testing.T) {
+func TestStd(t *testing.T) {
 	fsys := upspinfsys.UpspinFS(c)
-	root := string(cfg.UserName())
 
-	matches, err := fs.Glob(fsys, root+"/*/*.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{
-		"user@example.com/code/text.txt",
-		"user@example.com/documents/doc1.txt",
-		"user@example.com/documents/doc2.txt",
-	}
-	sort.Strings(matches)
-	if diff := cmp.Diff(matches, want); diff != "" {
-		t.Fatalf("got wrong Glob, diff: %s", diff)
+	var (
+		documents = "documents"
+		photos    = filepath.Join(documents, "photos")
+		code      = "code"
+	)
+	expected := []string{
+		documents, photos, code,
+		"rootfile.txt",
+		filepath.Join(documents, "doc1.txt"),
+		filepath.Join(documents, "doc2.txt"),
+		filepath.Join(code, "main.go"),
+		filepath.Join(code, "go.mod"),
+		filepath.Join(code, "text.txt"),
 	}
 
+	// To use fstest.TestFS is necessary that "." dir works.
+	// Upspin does not have a root dir, each user has its own home dir
+	// and it's impossible or at least not practical to list all Upspin users
+	// so a ReadDir(".") would not be possible.
+	// One option to make "." is to root it at client's home dir
+	// e.g. "user@example.com", but this solution does not make possible to
+	// list other users content.
+	// The solution found is: root at "" and use
+	// fs.Sub(fsys, "user@example.com") to test, so we can test against a good
+	// test lib and use full Upspin power.
+	fsys, _ = fs.Sub(fsys, "user@example.com")
+
+	if err := fstest.TestFS(fsys, expected...); err != nil {
+		t.Fatalf("fstest: %v", err)
+	}
 }
 
 func TestDir(t *testing.T) {
@@ -92,57 +105,11 @@ func TestDir(t *testing.T) {
 	}
 }
 
-func TestUpspinFSRead(t *testing.T) {
+func TestUpspinFSDirRead(t *testing.T) {
 	fsys := upspinfsys.UpspinFS(c)
 	root := string(cfg.UserName())
 
-	fname := filepath.Join(root, "rootfile.txt")
-	f, err := fsys.Open(fname)
-	if err != nil {
-		t.Fatalf("failed to open rootfile.txt on fs: %v", err)
-	}
-	defer f.Close()
-
-	data, err := io.ReadAll(f)
-	if err != nil {
-		t.Fatalf("failed to read rootfile.txt: %v", err)
-	}
-	if string(data) != "rootfile" {
-		t.Fatalf("read wrong content from rootfile.txt, got: %q", data)
-	}
-
-	seeker := f.(io.Seeker)
-	if _, err := seeker.Seek(1, 0); err != nil {
-		t.Fatalf("failed to seek file: %v", err)
-	}
-	data, err = io.ReadAll(f)
-	if err != nil {
-		t.Fatalf("failed to read rootfile.txt: %v", err)
-	}
-	if string(data) != "ootfile" {
-		t.Fatalf("read wrong content from rootfile.txt, got: %q", data)
-	}
-
-	if _, err := seeker.Seek(0, 0); err != nil {
-		t.Fatalf("failed to seek file: %v", err)
-	}
-
-	var buf [4]byte
-	ra := f.(io.ReaderAt)
-	n, err := ra.ReadAt(buf[:], 4)
-	if err != nil {
-		t.Fatalf("failed to read at: %v", err)
-	}
-	if string(buf[:n]) != "file" {
-		t.Fatalf("readAt wrong content from rootfile.txt, got: %q", buf[:n])
-	}
-
-	_, err = fsys.Open(filepath.Join(root, "noexist.txt"))
-	if !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("should return ErrNotExist, got: %v", err)
-	}
-
-	f, err = fsys.Open(root)
+	f, err := fsys.Open(root)
 	if err != nil {
 		t.Fatalf("failed to open root: %v", err)
 	}
@@ -178,79 +145,6 @@ func TestReadDirFile(t *testing.T) {
 	if len(des2) != 2 {
 		t.Fatalf("should return 2 entry, got %d", len(des2))
 	}
-	if _, err := dir.ReadDir(-1); err != io.EOF {
-		t.Fatalf("should return io.EOF, got: %v", err)
-	}
-
-	deNames := make([]string, 0)
-	for _, de := range des {
-		deNames = append(deNames, de.Name())
-	}
-	for _, de := range des2 {
-		deNames = append(deNames, de.Name())
-	}
-
-	want := []string{
-		"doc2.txt",
-		"doc1.txt",
-		"photos",
-	}
-	trans := cmp.Transformer("Sort", func(in []string) []string {
-		out := append([]string(nil), in...)
-		sort.Strings(out)
-		return out
-	})
-	if diff := cmp.Diff(deNames, want, trans); diff != "" {
-		t.Fatalf("got wrong entry names: %s", diff)
-	}
-
-	f, err = fsys.Open(filepath.Join(root, "code"))
-	if err != nil {
-		t.Fatalf("failed to open code: %v", err)
-	}
-	dir, ok = f.(fs.ReadDirFile)
-	if !ok {
-		t.Fatal("should implement fs.ReadDirFile")
-	}
-	des, err = dir.ReadDir(0)
-	if err != nil {
-		t.Fatalf("failed to read dir(0): %v", err)
-	}
-	if len(des) != 3 {
-		t.Fatalf("got %d entries, want 3", len(des))
-	}
-}
-
-func TestFileInfo(t *testing.T) {
-	fsys := upspinfsys.UpspinFS(c)
-	root := string(cfg.UserName())
-
-	f, err := fsys.Open(filepath.Join(root, "rootfile.txt"))
-	if err != nil {
-		t.Fatalf("failed to open file: %v", err)
-	}
-
-	info, err := f.Stat()
-	if err != nil {
-		t.Fatalf("failed to get file info: %v", err)
-	}
-	if info.Name() != "rootfile.txt" {
-		t.Fatalf("info.Name() returned the wrong name. Got: %q, want %q",
-			info.Name(), "rootfile.txt")
-	}
-	if info.Size() != int64(len("rootfile")) {
-		t.Fatalf("wrong file size, got %d, want %d", info.Size(), len("rootfile"))
-	}
-	if info.Mode() != fs.ModeIrregular {
-		t.Fatalf("should return Mode() == fs.ModeIrregular")
-	}
-	if info.IsDir() {
-		t.Fatalf("should return IsDir() == false")
-	}
-	if info.Sys() != nil {
-		t.Fatalf("should return Sys() == nil")
-	}
-
 }
 
 func createDirTree(c upspin.Client, cfg upspin.Config) {

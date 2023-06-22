@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	stdpath "path"
 	"sort"
 	"strings"
 	"time"
@@ -89,9 +90,20 @@ func (u uFS) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func (u uFS) Glob(pattern string) ([]string, error) {
+	// Used only to check if it is a valid pattern.
+	_, err := stdpath.Match(pattern, "")
+	if err != nil {
+		return nil, err
+	}
+
 	entries, err := u.client.Glob(pattern)
 	if err != nil {
 		return nil, err
+	}
+	// Check if len == 0 to return nil, not an empty slice,
+	// it's defined in the fs.Glob that should return nil.
+	if len(entries) == 0 {
+		return nil, nil
 	}
 	names := make([]string, len(entries))
 	for i, e := range entries {
@@ -114,7 +126,11 @@ func (f file) Read(b []byte) (n int, err error) {
 }
 
 func (f file) ReadAt(b []byte, off int64) (n int, err error) {
-	return f.file.ReadAt(b, off)
+	n, err = f.file.ReadAt(b, off)
+	if n < len(b) && err == nil {
+		return n, io.EOF
+	}
+	return n, err
 }
 
 func (f file) Seek(offset int64, whence int) (ret int64, err error) {
@@ -147,6 +163,9 @@ func (d *dir) Stat() (fs.FileInfo, error) {
 func (d *dir) ReadDir(n int) ([]fs.DirEntry, error) {
 	if d.entries != nil {
 		if d.entriesOffset == len(d.entries) {
+			if n <= 0 {
+				return nil, nil
+			}
 			return nil, io.EOF
 		}
 		start := d.entriesOffset
@@ -205,10 +224,15 @@ func fileInfo(de *upspin.DirEntry) info {
 	}
 	name, _ = strings.CutPrefix(name, "/")
 
+	mode := fs.ModeIrregular
+	if de.IsDir() {
+		mode |= fs.ModeDir
+	}
+
 	return info{
 		name:    name,
 		size:    size,
-		mode:    fs.ModeIrregular,
+		mode:    mode,
 		modTime: de.Time.Go(),
 		isDir:   de.IsDir(),
 	}
