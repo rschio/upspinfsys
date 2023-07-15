@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	stdpath "path"
 	"sort"
 	"strings"
 	"time"
@@ -90,12 +89,6 @@ func (u uFS) ReadDir(name string) ([]fs.DirEntry, error) {
 }
 
 func (u uFS) Glob(pattern string) ([]string, error) {
-	// Used only to check if it is a valid pattern.
-	_, err := stdpath.Match(pattern, "")
-	if err != nil {
-		return nil, err
-	}
-
 	entries, err := u.client.Glob(pattern)
 	if err != nil {
 		return nil, err
