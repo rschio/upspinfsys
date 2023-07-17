@@ -119,11 +119,7 @@ func (f file) Read(b []byte) (n int, err error) {
 }
 
 func (f file) ReadAt(b []byte, off int64) (n int, err error) {
-	n, err = f.file.ReadAt(b, off)
-	if n < len(b) && err == nil {
-		return n, io.EOF
-	}
-	return n, err
+	return f.file.ReadAt(b, off)
 }
 
 func (f file) Seek(offset int64, whence int) (ret int64, err error) {
