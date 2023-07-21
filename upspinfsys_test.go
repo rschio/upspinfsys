@@ -1,6 +1,7 @@
 package upspinfsys_test
 
 import (
+	"bytes"
 	"io"
 	"io/fs"
 	"log"
@@ -44,6 +45,8 @@ func TestStd(t *testing.T) {
 		"rootfile.txt",
 		filepath.Join(documents, "doc1.txt"),
 		filepath.Join(documents, "doc2.txt"),
+		filepath.Join(documents, "link_text"),
+		filepath.Join(documents, "link_link_text"),
 		filepath.Join(code, "main.go"),
 		filepath.Join(code, "go.mod"),
 		filepath.Join(code, "text.txt"),
@@ -71,16 +74,18 @@ func TestDir(t *testing.T) {
 	root := string(cfg.UserName())
 
 	visited := map[string]bool{
-		filepath.Join(root):                          false,
-		filepath.Join(root, "rootfile.txt"):          false,
-		filepath.Join(root, "documents"):             false,
-		filepath.Join(root, "documents", "photos"):   false,
-		filepath.Join(root, "documents", "doc1.txt"): false,
-		filepath.Join(root, "documents", "doc2.txt"): false,
-		filepath.Join(root, "code"):                  false,
-		filepath.Join(root, "code", "main.go"):       false,
-		filepath.Join(root, "code", "go.mod"):        false,
-		filepath.Join(root, "code", "text.txt"):      false,
+		filepath.Join(root):                                false,
+		filepath.Join(root, "rootfile.txt"):                false,
+		filepath.Join(root, "documents"):                   false,
+		filepath.Join(root, "documents", "photos"):         false,
+		filepath.Join(root, "documents", "doc1.txt"):       false,
+		filepath.Join(root, "documents", "doc2.txt"):       false,
+		filepath.Join(root, "documents", "link_text"):      false,
+		filepath.Join(root, "documents", "link_link_text"): false,
+		filepath.Join(root, "code"):                        false,
+		filepath.Join(root, "code", "main.go"):             false,
+		filepath.Join(root, "code", "go.mod"):              false,
+		filepath.Join(root, "code", "text.txt"):            false,
 	}
 	wantLen := len(visited)
 
@@ -142,9 +147,83 @@ func TestReadDirFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read dir(-1): %v", err)
 	}
-	if len(des2) != 2 {
-		t.Fatalf("should return 2 entry, got %d", len(des2))
+	if len(des2) != 4 {
+		t.Fatalf("should return 4 entry, got %d", len(des2))
 	}
+}
+
+func TestLink(t *testing.T) {
+	fsys := upspinfsys.UpspinFS(c)
+	root := string(cfg.UserName())
+
+	target, err := fsys.Open(filepath.Join(root, "code", "text.txt"))
+	if err != nil {
+		t.Fatalf("Open link: %v", err)
+	}
+	tContent, err := io.ReadAll(target)
+	target.Close()
+	if err != nil {
+		t.Fatalf("ReadAll target: %v", err)
+	}
+
+	l, err := fsys.Open(filepath.Join(root, "documents", "link_text"))
+	if err != nil {
+		t.Fatalf("Open link: %v", err)
+	}
+
+	got, err := io.ReadAll(l)
+	if err != nil {
+		t.Fatalf("link ReadAll: %v", err)
+	}
+	if !bytes.Equal(got, tContent) {
+		t.Fatalf("got %s want %s", got, tContent)
+	}
+
+	linkOfLink, err := fsys.Open(filepath.Join(root, "documents", "link_link_text"))
+	if err != nil {
+		t.Fatalf("Open linkOfLink: %v", err)
+	}
+
+	got, err = io.ReadAll(linkOfLink)
+	if err != nil {
+		t.Fatalf("linkOfLink ReadAll: %v", err)
+	}
+	if !bytes.Equal(got, tContent) {
+		t.Fatalf("got %s want %s", got, tContent)
+	}
+
+}
+
+func TestLinkDir(t *testing.T) {
+	fsys := upspinfsys.UpspinFS(c)
+	root := string(cfg.UserName())
+
+	// Link to dir
+	linkDir := filepath.Join(root, "documents", "link_dir")
+	codeDir := filepath.Join(root, "code")
+	// Create here to avoid fstest.TestFS:
+	// Ignore link_dir: https://github.com/golang/go/issues/50401
+	if _, err := c.PutLink(upspin.PathName(codeDir), upspin.PathName(linkDir)); err != nil {
+		log.Fatalf("failed to create link_dir: %v", err)
+	}
+
+	want, err := fs.ReadDir(fsys, codeDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	got, err := fs.ReadDir(fsys, linkDir)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d entries, want %d", len(got), len(want))
+	}
+	for i := 0; i < len(got); i++ {
+		if got[i].Name() != want[i].Name() {
+			t.Errorf("got %q want %q", got[i].Name(), want[i].Name())
+		}
+	}
+
 }
 
 func createDirTree(c upspin.Client, cfg upspin.Config) {
@@ -184,6 +263,15 @@ func createDirTree(c upspin.Client, cfg upspin.Config) {
 	}
 	if _, err := c.Put(path.Join(code, "text.txt"), []byte("text")); err != nil {
 		log.Fatalf("failed to create text.txt: %v", err)
+	}
+
+	// Link
+	if _, err := c.PutLink(path.Join(code, "text.txt"), path.Join(documents, "link_text")); err != nil {
+		log.Fatalf("failed to create link_text: %v", err)
+	}
+	// Link to link
+	if _, err := c.PutLink(path.Join(documents, "link_text"), path.Join(documents, "link_link_text")); err != nil {
+		log.Fatalf("failed to create link_link_text: %v", err)
 	}
 }
 

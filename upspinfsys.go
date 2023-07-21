@@ -3,7 +3,6 @@
 // the http.FileServer too.
 //
 // Limitations:
-//   - The package only handles regular files and dir files;
 //   - The FileMode does not represent the Access file correctly.
 package upspinfsys
 
@@ -38,7 +37,7 @@ func (u uFS) Open(name string) (fs.File, error) {
 		return nil, &fs.PathError{Op: op, Path: name, Err: fs.ErrInvalid}
 	}
 
-	de, err := u.client.Lookup(upspin.PathName(name), false)
+	de, err := u.client.Lookup(upspin.PathName(name), true)
 	if err != nil {
 		switch {
 		case errors.Is(errors.NotExist, err):
@@ -214,8 +213,11 @@ func fileInfo(de *upspin.DirEntry) info {
 	name, _ = strings.CutPrefix(name, "/")
 
 	mode := fs.ModeIrregular
-	if de.IsDir() {
+	switch {
+	case de.IsDir():
 		mode |= fs.ModeDir
+	case de.IsLink():
+		mode |= fs.ModeSymlink
 	}
 
 	return info{
