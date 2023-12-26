@@ -212,7 +212,10 @@ func fileInfo(de *upspin.DirEntry) info {
 	}
 	name, _ = strings.CutPrefix(name, "/")
 
-	mode := fs.ModeIrregular
+	// TODO: Think in a way to reflect the actual Access file permissions.
+	// Using 0700 gives the owner read and execute permissions, write is not
+	// possible because the fs.FS interface is read only.
+	var mode fs.FileMode = 0700
 	switch {
 	case de.IsDir():
 		mode |= fs.ModeDir
